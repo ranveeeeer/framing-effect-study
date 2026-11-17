@@ -1,0 +1,14 @@
+# secrets
+.env
+
+# Python
+__pycache__/
+.venv/
+
+# test and pilot runs (not part of the results)
+data/mock/
+data/models/pilot/
+results/mock/
+
+# macOS
+.DS_Store
