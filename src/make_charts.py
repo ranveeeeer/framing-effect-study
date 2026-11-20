@@ -1,13 +1,15 @@
 """
-Make the three charts from the tables in results/tables.
+Make the charts from the tables in results/tables.
 
     1. headline.png         - % risky by frame: students vs each model (direct mode)
     2. by_scenario.png      - the same, split by scenario, one panel each
     3. step_by_step.png     - framing gap per model: direct vs step by step
+    4. students.png         - students only, by scenario and pooled
 
 Usage:
     python src/make_charts.py          # real data
     python src/make_charts.py --mock   # test data
+    python src/make_charts.py --students-only   # before any model results exist
 """
 
 import argparse
@@ -151,14 +153,58 @@ def step_by_step(students, gaps, out):
     plt.close(fig)
 
 
+def students_chart(students, out):
+    """% risky by frame for the students: each scenario, then all five pooled."""
+    order = SCENARIOS + ["all"]
+    df = students.set_index("scenario").loc[order].reset_index()
+    labels = [s.capitalize() for s in SCENARIOS] + ["All 5\n(per student)"]
+
+    x = np.arange(len(df)).astype(float)
+    x[-1] += 0.5  # a little space before the pooled pair
+    w = 0.38
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    for offset, frame, colour, label in [(-w / 2, "gain", GAIN, "Gain frame (saved / keep)"),
+                                         (w / 2, "loss", LOSS, "Loss frame (die / lose)")]:
+        bars = ax.bar(x + offset, df[f"pct_{frame}"], width=w - 0.04, color=colour, label=label)
+        ax.errorbar(x + offset, df[f"pct_{frame}"], yerr=ci_errors(df, frame),
+                    fmt="none", ecolor=INK, elinewidth=0.8, capsize=2)
+        for b, v in zip(bars, df[f"pct_{frame}"]):
+            ax.text(b.get_x() + b.get_width() / 2, 2, f"{v:.0f}", ha="center",
+                    va="bottom", fontsize=8, color="white")
+
+    ax.axvline((x[-2] + x[-1]) / 2, color=GRID, linewidth=1)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    percent_axis(ax)
+    ax.set_ylabel("Chose the risky option")
+    pooled = df[df["scenario"] == "all"].iloc[0]
+    ax.set_title("Students gambled more when the same outcome was framed as a loss")
+    ax.legend(frameon=False, loc="upper left", ncol=2, fontsize=8)
+    fig.text(0.01, 0.01,
+             f"15 students per frame, each saw one frame only. Bars: % choosing the risky option. "
+             f"Lines: 95% confidence intervals.\nAll 5 pooled: {pooled['pct_gain']:.0f}% vs "
+             f"{pooled['pct_loss']:.0f}%, Mann-Whitney p = {pooled['mann_whitney_p']:.2f} "
+             "(same direction in every scenario, but not statistically significant at this sample size).",
+             fontsize=8, color=MUTED)
+    fig.tight_layout(rect=(0, 0.08, 1, 1))
+    fig.savefig(out / "students.png")
+    plt.close(fig)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mock", action="store_true")
+    parser.add_argument("--students-only", action="store_true",
+                        help="only the students chart (no model results needed)")
     args = parser.parse_args()
     dirs = model_dirs(mock=args.mock)
     dirs["figures"].mkdir(parents=True, exist_ok=True)
 
     students = pd.read_csv(model_dirs()["tables"] / "students_by_scenario.csv")
+    students_chart(students, model_dirs()["figures"])
+    if args.students_only:
+        print(f"Students chart saved in {model_dirs()['figures']}")
+        return
     pooled = pd.read_csv(dirs["tables"] / "models_pooled.csv")
     per_scenario = pd.read_csv(dirs["tables"] / "models_by_scenario.csv")
     gaps = pd.read_csv(dirs["tables"] / "models_gap_direct_vs_step.csv")
